@@ -3,7 +3,14 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+import webserver  # Import the webserver module
+
+# === CONFIG ===
+OWNER_ID = 620819429139415040  # Your Discord user ID
+
+# Start Flask webserver in background thread
+webserver.start()
 
 # === Settings ===
 TOKEN = os.getenv("Secret_Key") or "YOUR_DISCORD_BOT_TOKEN_HERE"
@@ -316,3 +323,4 @@ if __name__ == "__main__":
         loop = asyncio.get_event_loop()
         loop.create_task(main())
         loop.run_forever()
+
