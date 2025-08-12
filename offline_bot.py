@@ -259,13 +259,98 @@ async def access_cmd(interaction: discord.Interaction, server_id: str):
     except ValueError:
         await interaction.response.send_message("❌ Invalid server ID.", ephemeral=True)
 
-@bot.tree.command(name="sleep", description="Start your sleep timer and say good night (Admins+ only)", guild=discord.Object(id=GUILD_ID))
+sleep_start_times = {}
+
+# Permission helper for Admin+ (example)
+def has_admin_role(member: discord.Member) -> bool:
+    if member.id == OWNER_ID:
+        return True
+    admin_roles = {"admin", "head admin", "co-owner", "owner"}
+    member_roles = {r.name.lower() for r in member.roles}
+    return bool(admin_roles & member_roles)
+
+# --- Sleep command ---
+@bot.tree.command(name="sleep", description="Start your sleep timer (Admins+ only)", guild=discord.Object(id=GUILD_ID))
 async def sleep_cmd(interaction: discord.Interaction):
     if not has_admin_role(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
+        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
         return
-    sleep_start_times[interaction.user.id] = discord.utils.utcnow()
-    await interaction.response.send_message(f"😴 Good night, {interaction.user.display_name}! Sleep well tonight.")
+    sleep_start_times[interaction.user.id] = datetime.utcnow()
+    await interaction.response.send_message(f"😴 {interaction.user.mention}, you are now marked as sleeping. Sweet dreams!")
+
+# --- Sleeping list command ---
+@bot.tree.command(name="sleeping", description="Show list of sleeping users (Admins+ only)", guild=discord.Object(id=GUILD_ID))
+async def sleeping_cmd(interaction: discord.Interaction):
+    if not has_admin_role(interaction.user):
+        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        return
+    if not sleep_start_times:
+        await interaction.response.send_message("Nobody is currently sleeping.")
+        return
+    mentions = []
+    for user_id in sleep_start_times.keys():
+        user = bot.get_user(user_id)
+        if user:
+            mentions.append(user.mention)
+        else:
+            mentions.append(f"<@{user_id}>")
+    await interaction.response.send_message(f"😴 Currently sleeping: {', '.join(mentions)}")
+
+# --- On message handler ---
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+
+    user_id = message.author.id
+
+    # Wake-up logic: if user was sleeping, remove and announce
+    if user_id in sleep_start_times:
+        sleep_start = sleep_start_times.pop(user_id)
+        sleep_duration = datetime.utcnow() - sleep_start
+        total_seconds = int(sleep_duration.total_seconds())
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+
+        time_str = ""
+        if hours > 0:
+            time_str += f"{hours} hour{'s' if hours != 1 else ''} "
+        if minutes > 0:
+            time_str += f"{minutes} minute{'s' if minutes != 1 else ''} "
+        if seconds > 0 or (hours == 0 and minutes == 0):
+            time_str += f"{seconds} second{'s' if seconds != 1 else ''}"
+
+        try:
+            await message.channel.send(f"🌞 Welcome back, {message.author.mention}! You slept for {time_str.strip()}.")
+        except discord.Forbidden:
+            pass
+
+    # Notify if mentioned users are sleeping
+    sleeping_mentioned = [user for user in message.mentions if user.id in sleep_start_times]
+    if sleeping_mentioned:
+        mentions_str = ", ".join(user.mention for user in sleeping_mentioned)
+        try:
+            await message.channel.send(f"😴 {mentions_str} {'is' if len(sleeping_mentioned) == 1 else 'are'} currently sleeping.")
+        except discord.Forbidden:
+            pass
+
+    # If bot is mentioned, list sleeping users
+    if bot.user in message.mentions and sleep_start_times:
+        sleeping_list = []
+        for user_id in sleep_start_times:
+            user = bot.get_user(user_id)
+            if user:
+                sleeping_list.append(user.mention)
+            else:
+                sleeping_list.append(f"<@{user_id}>")
+        if sleeping_list:
+            try:
+                await message.channel.send(f"😴 Currently sleeping: {', '.join(sleeping_list)}")
+            except discord.Forbidden:
+                pass
+
+    await bot.process_commands(message)
+
 
 @bot.tree.command(name="sleeping", description="List users currently sleeping (Admins+ only)", guild=discord.Object(id=GUILD_ID))
 async def sleeping_cmd(interaction: discord.Interaction):
