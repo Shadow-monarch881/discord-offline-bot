@@ -3,19 +3,18 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 import webserver  # Import the webserver module
 
 # === CONFIG ===
-OWNER_ID = 620819429139415040  # Your Discord user ID
+OWNER_ID = 620819429139415040  # Superior Owner's Discord user ID
+TOKEN = os.getenv("Secret_Key") or "YOUR_DISCORD_BOT_TOKEN_HERE"
+GUILD_ID = 1116737021470314597  # Your server ID for guild command sync
 
 # Start Flask webserver in background thread
 webserver.start()
 
-# === Settings ===
-TOKEN = os.getenv("Secret_Key") or "YOUR_DISCORD_BOT_TOKEN_HERE"
-GUILD_ID = 1116737021470314597  # Your server ID for guild command sync
-
+# === Intents & Bot setup ===
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
@@ -33,24 +32,27 @@ ROLES_HIERARCHY = [
     "moderator"
 ]
 
-# === Utility: Get highest role level index for a member
+# === Utility functions ===
+
 def get_highest_role_index(member: discord.Member):
+    # Superior Owner always top (index 0)
+    if member.id == OWNER_ID:
+        return 0
+
     member_roles = [r.name.lower() for r in member.roles]
     indices = [ROLES_HIERARCHY.index(r) for r in member_roles if r in ROLES_HIERARCHY]
     if indices:
-        return min(indices)  # Lower index = higher role
-    # Treat guild owner as highest
+        return min(indices)  # Lower index means higher role
     if member == member.guild.owner:
         return 0
-    return len(ROLES_HIERARCHY) + 1  # lowest
+    return len(ROLES_HIERARCHY) + 1
 
-# Check if member has at least required role
 def has_required_role(member: discord.Member, required_role: str):
     required_index = ROLES_HIERARCHY.index(required_role.lower())
     member_index = get_highest_role_index(member)
     return member_index <= required_index
 
-# === Offline Utility Globals ===
+# === Globals for offline utility ===
 last_record = ""
 repeat_enabled = False
 repeat_channel_id = None
@@ -136,7 +138,6 @@ async def promote(interaction: discord.Interaction, member: discord.Member):
         return
 
     member_roles = [r.name.lower() for r in member.roles]
-    # Find current role index (lowest/highest priority)
     for i in reversed(range(len(ROLES_HIERARCHY) - 1)):
         if ROLES_HIERARCHY[i + 1] in member_roles:
             new_role = discord.utils.get(interaction.guild.roles, name=ROLES_HIERARCHY[i])
@@ -221,37 +222,67 @@ async def refresh_cmd(interaction: discord.Interaction):
 
 @bot.tree.command(name="server_rules", description="Show Akane's usage rules for the server", guild=discord.Object(id=GUILD_ID))
 async def server_rules_cmd(interaction: discord.Interaction):
+    # Allow Mods and above only
     if not has_required_role(interaction.user, "mod"):
         await interaction.response.send_message("❌ You don't have permission to use this.", ephemeral=True)
         return
 
     embed = discord.Embed(
-        title="📜 Akane Bot Rules & Usage",
-        description="Akane has two parts: **AI Bot (Always Online)** & **Offline Utility Bot (Mods+ Only When Active)**",
+        title="📜 Akane Bot Rules & Commands",
+        description="Akane bot has a **Superior Owner**, Role hierarchy, and commands for moderation, utilities, and info.",
         color=discord.Color.purple()
     )
 
     embed.add_field(
-        name="🤖 AI Bot Commands (Always Available)",
+        name="👑 Superior Owner",
+        value=f"User ID: {OWNER_ID}\nHas the highest permission above all roles.",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🛡️ Role Hierarchy (Highest to Lowest)",
+        value="Owner > Co-owner > Head Admin > Admin > Head Mod > Mod > Moderator",
+        inline=False
+    )
+
+    embed.add_field(
+        name="⚙️ Moderation Commands",
         value=(
-            "@Akane <message> — Chat with AI\n"
-            "📎 **Attachment** — Upload a video/image for AI review\n"
-            "/status — Check status\n"
-            "/joke — Random joke\n"
-            "/quote — Random quote\n"
-            "/about — Learn about Akane"
+            "/kick member:@User reason:<text> — Kick a member (Mods+)\n"
+            "/ban member:@User reason:<text> — Ban a member (Admins+)\n"
+            "/unban user:User#1234 — Unban a user (Admins+)\n"
+            "/mute member:@User duration:<minutes> reason:<text> — Timeout a member (Mods+)\n"
+            "/unmute member:@User — Remove timeout (Mods+)"
         ),
         inline=False
     )
 
     embed.add_field(
-        name="💻 Offline Utility Bot Commands (Mods+ Only When Active)",
+        name="🔧 Role Management Commands",
         value=(
-            "/record <text> — Save a record\n"
+            "/promote member:@User — Promote to next higher role (Admins+)\n"
+            "/demote member:@User — Demote to next lower role (Admins+)"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="📝 Offline Utility Commands (Mods+)",
+        value=(
+            "/record text:<text> — Save a record\n"
             "/print — Show last saved record\n"
-            "/repeat — Toggle repeat mode in current channel\n"
-            "/stop — Stop repeat manually\n"
-            "/refresh — Clear record & disable repeat"
+            "/repeat — Toggle repeating last record in channel\n"
+            "/stop — Stop repeating last record\n"
+            "/refresh — Clear record and stop repeat"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="ℹ️ Info Commands (Mods+)",
+        value=(
+            "/server_rules — Show this rules & commands list\n"
+            "/about — About Akane bot"
         ),
         inline=False
     )
@@ -259,10 +290,11 @@ async def server_rules_cmd(interaction: discord.Interaction):
     embed.add_field(
         name="⚠️ Rules",
         value=(
-            "1️⃣ Use AI respectfully\n"
-            "2️⃣ Follow server rules\n"
-            "3️⃣ Only staff use utility commands\n"
-            "4️⃣ Offline bot works only when owner's PC is on"
+            "1️⃣ Superior Owner has full control.\n"
+            "2️⃣ Use commands respectfully.\n"
+            "3️⃣ Follow server rules and hierarchy.\n"
+            "4️⃣ Offline utility commands only work when owner's PC is on.\n"
+            "5️⃣ Only authorized roles may use moderation and utility commands."
         ),
         inline=False
     )
@@ -296,6 +328,7 @@ async def about_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 # === Repeat Listener ===
+
 @bot.event
 async def on_message(message):
     global repeat_enabled, last_record, repeat_channel_id
@@ -305,13 +338,15 @@ async def on_message(message):
         await message.channel.send(last_record)
     await bot.process_commands(message)
 
-# === Sync commands on ready ===
+# === On ready event to sync commands ===
+
 @bot.event
 async def on_ready():
     print(f"✅ Bot logged in as {bot.user}")
     await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
 
 # === Run bot ===
+
 async def main():
     async with bot:
         await bot.start(TOKEN)
@@ -323,4 +358,3 @@ if __name__ == "__main__":
         loop = asyncio.get_event_loop()
         loop.create_task(main())
         loop.run_forever()
-
