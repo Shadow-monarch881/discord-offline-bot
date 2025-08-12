@@ -32,7 +32,6 @@ ROLES_HIERARCHY = [
     "moderator"
 ]
 
-
 # === Globals for offline utility & sleep feature ===
 last_record = ""
 repeat_enabled = False
@@ -76,6 +75,7 @@ def has_admin_role(member: discord.Member):
     member_roles = {r.name.lower() for r in member.roles}
     allowed = {"admin", "head admin", "co-owner", "owner"}
     return any(role in member_roles for role in allowed)
+
 
 # === Moderation Commands ===
 
@@ -238,7 +238,8 @@ async def refresh_cmd(interaction: discord.Interaction):
     repeat_channel_id = None
     await interaction.response.send_message("♻️ Record cleared and repeat mode disabled.")
 
-# === Sleep / AllowChannel / Access Commands 
+# === Sleep / AllowChannel / Access Commands ===
+
 # Owner-only: Allow current channel for sleep commands for members below mod+
 @bot.tree.command(name="allowchannel", description="Owner only: Allow current channel for members to use sleep")
 async def allowchannel_cmd(interaction: discord.Interaction):
@@ -248,8 +249,7 @@ async def allowchannel_cmd(interaction: discord.Interaction):
     allowed_channels.add(interaction.channel_id)
     await interaction.response.send_message(f"✅ Channel <#{interaction.channel_id}> allowed for members to use sleep commands.")
 
-
-# Owner-only: Allow server id for cross-server commands (you can extend its usage later)
+# Owner-only: Allow server id for cross-server commands (you can expand usage)
 @bot.tree.command(name="access", description="Owner only: Allow a server ID for cross-server access")
 @app_commands.describe(server_id="Server ID to allow access")
 async def access_cmd(interaction: discord.Interaction, server_id: str):
@@ -261,17 +261,18 @@ async def access_cmd(interaction: discord.Interaction, server_id: str):
         await interaction.response.send_message(f"✅ Access granted for server ID {server_id}.")
     except ValueError:
         await interaction.response.send_message("❌ Invalid server ID.", ephemeral=True)
-# --- Sleep command ---
-@bot.tree.command(name="sleep", description="Start your sleep timer (Admins+ only)", guild=discord.Object(id=GUILD_ID))
+
+# Sleep command: mods+ anywhere OR members in allowed channels only
+@bot.tree.command(name="sleep", description="Start your sleep timer")
 async def sleep_cmd(interaction: discord.Interaction):
-    if not has_admin_role(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+    user = interaction.user
+    if not has_privileged_role(user) and interaction.channel_id not in allowed_channels:
+        await interaction.response.send_message("❌ You can only use this command in allowed channels.", ephemeral=True)
         return
-    sleep_start_times[interaction.user.id] = datetime.utcnow()
-    await interaction.response.send_message(f"😴 {interaction.user.mention}, you are now marked as sleeping. Sweet dreams!")
+    sleep_start_times[user.id] = datetime.utcnow()
+    await interaction.response.send_message(f"😴 {user.mention}, you are now marked as sleeping. Sweet dreams!")
 
-
-# --- Sleeping list command ---
+# Sleeping list command (admins+)
 @bot.tree.command(name="sleeping", description="Show list of sleeping users (Admins+ only)", guild=discord.Object(id=GUILD_ID))
 async def sleeping_cmd(interaction: discord.Interaction):
     if not has_admin_role(interaction.user):
@@ -283,69 +284,8 @@ async def sleeping_cmd(interaction: discord.Interaction):
     mentions = []
     for user_id in sleep_start_times.keys():
         user = bot.get_user(user_id)
-        if user:
-            mentions.append(user.mention)
-        else:
-            mentions.append(f"<@{user_id}>")
+        mentions.append(user.mention if user else f"<@{user_id}>")
     await interaction.response.send_message(f"😴 Currently sleeping: {', '.join(mentions)}")
-
-# --- On message handler ---
-@bot.event
-async def on_message(message):
-    if message.author.bot:
-        return
-
-    user_id = message.author.id
-
-    # Wake-up logic: if user was sleeping, remove and announce
-    if user_id in sleep_start_times:
-        sleep_start = sleep_start_times.pop(user_id)
-        sleep_duration = datetime.utcnow() - sleep_start
-        total_seconds = int(sleep_duration.total_seconds())
-        hours, remainder = divmod(total_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-
-        time_str = ""
-        if hours > 0:
-            time_str += f"{hours} hour{'s' if hours != 1 else ''} "
-        if minutes > 0:
-            time_str += f"{minutes} minute{'s' if minutes != 1 else ''} "
-        if seconds > 0 or (hours == 0 and minutes == 0):
-            time_str += f"{seconds} second{'s' if seconds != 1 else ''}"
-
-        try:
-            await message.channel.send(f"🌞 Welcome back, {message.author.mention}! You slept for {time_str.strip()}.")
-        except discord.Forbidden:
-            pass
-
-    # Notify if mentioned users are sleeping
-    sleeping_mentioned = [user for user in message.mentions if user.id in sleep_start_times]
-    if sleeping_mentioned:
-        mentions_str = ", ".join(user.mention for user in sleeping_mentioned)
-        try:
-            await message.channel.send(f"😴 {mentions_str} {'is' if len(sleeping_mentioned) == 1 else 'are'} currently sleeping.")
-        except discord.Forbidden:
-            pass
-
-    # If bot is mentioned, list sleeping users
-    if bot.user in message.mentions and sleep_start_times:
-        sleeping_list = []
-        for user_id in sleep_start_times:
-            user = bot.get_user(user_id)
-            if user:
-                sleeping_list.append(user.mention)
-            else:
-                sleeping_list.append(f"<@{user_id}>")
-        if sleeping_list:
-            try:
-                await message.channel.send(f"😴 Currently sleeping: {', '.join(sleeping_list)}")
-            except discord.Forbidden:
-                pass
-
-    await bot.process_commands(message)
-
-
-
 
 # === Info Commands ===
 
@@ -447,91 +387,44 @@ async def server_rules_cmd(interaction: discord.Interaction):
 
     embed.set_footer(text="Stay respectful and enjoy chatting with Akane 💜")
     await interaction.response.send_message(embed=embed)
-# === On ready event ===
-@bot.event
-async def on_ready():
-    print(f"✅ Bot logged in as {bot.user}")
-    await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-    
-# About command (GLOBAL, no guild specified)
-@bot.tree.command(name="about", description="Learn about Akane (global)")
+
+# --- About command (GLOBAL) ---
+@bot.tree.command(name="about", description="Learn about Akane")
 async def about_cmd(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="✨ About Akane",
-        description="Always happy to help you 💖",
-        color=discord.Color.purple()
-    )
-    embed.add_field(
-        name="💡 Creator",
-        value="Made with love by **Noviac** for this server.",
-        inline=False
-    )
-    embed.add_field(
-        name="🌐 Community",
-        value="[Join here!](https://discord.gg/HgZP7tMw)",
-        inline=False
-    )
-    embed.add_field(
-        name="📩 Contact",
-        value="For further questions, please DM **Noviac**.",
-        inline=False
-    )
-    embed.set_footer(text="😊 Have a nice day! 🌸")
+    embed = discord.Embed(title="Akane Bot", description="Hello! I am Akane, your friendly moderation and utility bot. 💜", color=discord.Color.purple())
+    embed.add_field(name="Owner", value=f"<@{OWNER_ID}>", inline=True)
+    embed.add_field(name="Commands", value="Moderation, Role Management, Offline Utility, Sleep, Info, and Owner commands.", inline=False)
+    embed.set_footer(text="Made with love ❤️")
     await interaction.response.send_message(embed=embed)
 
-
-
-# === Repeat Listener & Sleep Wakeup ===
+# === Events ===
 
 @bot.event
-async def on_message(message):
-    global repeat_enabled, last_record, repeat_channel_id
-    if message.author.bot:
+async def on_ready():
+    print(f"✅ Logged in as {bot.user}")
+    # Sync guild commands for faster updates in guild
+    await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+    # Sync global commands like /about
+    await bot.tree.sync()
+    print("🔄 Commands synced.")
+
+@bot.event
+async def on_message(message: discord.Message):
+    global last_record, repeat_enabled, repeat_channel_id
+    if message.author == bot.user:
         return
 
-    # Repeat last record if enabled and in the right channel
-    if repeat_enabled and last_record and message.channel.id == repeat_channel_id:
-        await message.channel.send(last_record)
+    # Wake up user on any message if sleeping
+    if message.author.id in sleep_start_times:
+        del sleep_start_times[message.author.id]
+        await message.channel.send(f"🌞 Welcome back, {message.author.mention}!")
 
-    # Sleep wake-up message
-    user_id = message.author.id
-    if user_id in sleep_start_times:
-        sleep_start = sleep_start_times.pop(user_id)
-        sleep_duration = datetime.utcnow() - sleep_start
-
-        hours = sleep_duration.seconds // 3600
-        minutes = (sleep_duration.seconds % 3600) // 60
-
-        time_str = ""
-        if hours > 0:
-            time_str += f"{hours} hour{'s' if hours != 1 else ''} "
-        if minutes > 0 or hours == 0:
-            time_str += f"{minutes} minute{'s' if minutes != 1 else ''}"
-
-        await message.channel.send(f"🌞 Welcome back, {message.author.display_name}! You slept for {time_str.strip()}.")
+    # If repeat is enabled and in the repeat channel
+    if repeat_enabled and repeat_channel_id == message.channel.id:
+        if last_record:
+            await message.channel.send(last_record)
 
     await bot.process_commands(message)
 
-# === On ready event to sync commands ===
-
-@bot.event
-async def on_ready():
-    print(f"✅ Bot logged in as {bot.user}")
-    await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-
-# === Run bot ===
-
-async def main():
-    async with bot:
-        await bot.start(TOKEN)
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except RuntimeError:
-        loop = asyncio.get_event_loop()
-        loop.create_task(main())
-        loop.run_forever()
-
-
-
+# === Run the bot ===
+bot.run(TOKEN)
