@@ -352,20 +352,6 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-@bot.tree.command(name="sleeping", description="List users currently sleeping (Admins+ only)", guild=discord.Object(id=GUILD_ID))
-async def sleeping_cmd(interaction: discord.Interaction):
-    if not has_admin_role(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
-        return
-    if not sleep_start_times:
-        await interaction.response.send_message("Nobody is currently sleeping.")
-        return
-    users = []
-    for user_id in sleep_start_times.keys():
-        user = bot.get_user(user_id)
-        users.append(user.display_name if user else f"User ID {user_id}")
-    await interaction.response.send_message("💤 Currently sleeping users:\n" + "\n".join(users))
-
 # === On ready event ===
 @bot.event
 async def on_ready():
@@ -549,4 +535,5 @@ if __name__ == "__main__":
         loop = asyncio.get_event_loop()
         loop.create_task(main())
         loop.run_forever()
+
 
