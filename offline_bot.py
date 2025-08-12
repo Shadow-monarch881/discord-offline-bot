@@ -3,8 +3,8 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import asyncio
-from datetime import timedelta
-import webserver  # Import the webserver module
+from datetime import timedelta, datetime
+import webserver  # Your webserver module
 
 # === CONFIG ===
 OWNER_ID = 620819429139415040  # Superior Owner's Discord user ID
@@ -32,17 +32,25 @@ ROLES_HIERARCHY = [
     "moderator"
 ]
 
+# === Globals for offline utility & sleep feature ===
+last_record = ""
+repeat_enabled = False
+repeat_channel_id = None
+
+allowed_channels = set()  # Channels allowed for commands (set by /allowchannel)
+allowed_servers = set()   # Servers allowed for cross-server access (set by /access)
+
+sleep_start_times = {}  # user_id -> datetime when /sleep was used
+
 # === Utility functions ===
 
 def get_highest_role_index(member: discord.Member):
-    # Superior Owner always top (index 0)
     if member.id == OWNER_ID:
         return 0
-
     member_roles = [r.name.lower() for r in member.roles]
     indices = [ROLES_HIERARCHY.index(r) for r in member_roles if r in ROLES_HIERARCHY]
     if indices:
-        return min(indices)  # Lower index means higher role
+        return min(indices)  # Lower index = higher role
     if member == member.guild.owner:
         return 0
     return len(ROLES_HIERARCHY) + 1
@@ -52,10 +60,21 @@ def has_required_role(member: discord.Member, required_role: str):
     member_index = get_highest_role_index(member)
     return member_index <= required_index
 
-# === Globals for offline utility ===
-last_record = ""
-repeat_enabled = False
-repeat_channel_id = None
+def has_privileged_role(member: discord.Member):
+    # Used for commands allowed for mod and above (mod+)
+    if member.id == OWNER_ID:
+        return True
+    member_roles = {r.name.lower() for r in member.roles}
+    allowed = {"mod", "head mod", "admin", "head admin", "co-owner", "owner"}
+    return any(role in member_roles for role in allowed)
+
+def has_admin_role(member: discord.Member):
+    # Admin and above
+    if member.id == OWNER_ID:
+        return True
+    member_roles = {r.name.lower() for r in member.roles}
+    allowed = {"admin", "head admin", "co-owner", "owner"}
+    return any(role in member_roles for role in allowed)
 
 # === Moderation Commands ===
 
@@ -218,11 +237,55 @@ async def refresh_cmd(interaction: discord.Interaction):
     repeat_channel_id = None
     await interaction.response.send_message("♻️ Record cleared and repeat mode disabled.")
 
+# === Sleep / AllowChannel / Access Commands ===
+
+@bot.tree.command(name="allowchannel", description="Owner only: Allow current channel for commands")
+async def allowchannel_cmd(interaction: discord.Interaction):
+    if interaction.user.id != OWNER_ID:
+        await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
+        return
+    allowed_channels.add(interaction.channel_id)
+    await interaction.response.send_message(f"✅ Channel <#{interaction.channel_id}> allowed for commands.")
+
+@bot.tree.command(name="access", description="Owner only: Allow a server ID for cross-server commands")
+@app_commands.describe(server_id="Server ID to allow access")
+async def access_cmd(interaction: discord.Interaction, server_id: str):
+    if interaction.user.id != OWNER_ID:
+        await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
+        return
+    try:
+        allowed_servers.add(int(server_id))
+        await interaction.response.send_message(f"✅ Access granted for server ID {server_id}.")
+    except ValueError:
+        await interaction.response.send_message("❌ Invalid server ID.", ephemeral=True)
+
+@bot.tree.command(name="sleep", description="Start your sleep timer and say good night (Admins+ only)")
+async def sleep_cmd(interaction: discord.Interaction):
+    if not has_admin_role(interaction.user):
+        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        return
+
+    sleep_start_times[interaction.user.id] = datetime.utcnow()
+    await interaction.response.send_message(f"😴 Good night, {interaction.user.display_name}! Sleep well tonight.")
+
+@bot.tree.command(name="sleeping", description="List users currently sleeping (Admins+ only)")
+async def sleeping_cmd(interaction: discord.Interaction):
+    if not has_admin_role(interaction.user):
+        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        return
+    if not sleep_start_times:
+        await interaction.response.send_message("Nobody is currently sleeping.")
+        return
+    users = []
+    for user_id in sleep_start_times.keys():
+        user = bot.get_user(user_id)
+        users.append(user.display_name if user else f"User ID {user_id}")
+    await interaction.response.send_message("💤 Currently sleeping users:\n" + "\n".join(users))
+
 # === Info Commands ===
 
 @bot.tree.command(name="server_rules", description="Show Akane's usage rules for the server", guild=discord.Object(id=GUILD_ID))
 async def server_rules_cmd(interaction: discord.Interaction):
-    # Allow Mods and above only
     if not has_required_role(interaction.user, "mod"):
         await interaction.response.send_message("❌ You don't have permission to use this.", ephemeral=True)
         return
@@ -279,6 +342,24 @@ async def server_rules_cmd(interaction: discord.Interaction):
     )
 
     embed.add_field(
+        name="😴 Sleep Commands (Admins+)",
+        value=(
+            "/sleep — Start sleep timer\n"
+            "/sleeping — List currently sleeping users"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="⚙️ Owner-only Commands",
+        value=(
+            "/allowchannel — Allow current channel for commands\n"
+            "/access server_id:<id> — Allow server ID for cross-server access"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
         name="ℹ️ Info Commands (Mods+)",
         value=(
             "/server_rules — Show this rules & commands list\n"
@@ -327,15 +408,35 @@ async def about_cmd(interaction: discord.Interaction):
     embed.set_footer(text="😊 Have a nice day! 🌸")
     await interaction.response.send_message(embed=embed)
 
-# === Repeat Listener ===
+# === Repeat Listener & Sleep Wakeup ===
 
 @bot.event
 async def on_message(message):
     global repeat_enabled, last_record, repeat_channel_id
     if message.author.bot:
         return
+
+    # Repeat last record if enabled and in the right channel
     if repeat_enabled and last_record and message.channel.id == repeat_channel_id:
         await message.channel.send(last_record)
+
+    # Sleep wake-up message
+    user_id = message.author.id
+    if user_id in sleep_start_times:
+        sleep_start = sleep_start_times.pop(user_id)
+        sleep_duration = datetime.utcnow() - sleep_start
+
+        hours = sleep_duration.seconds // 3600
+        minutes = (sleep_duration.seconds % 3600) // 60
+
+        time_str = ""
+        if hours > 0:
+            time_str += f"{hours} hour{'s' if hours != 1 else ''} "
+        if minutes > 0 or hours == 0:
+            time_str += f"{minutes} minute{'s' if minutes != 1 else ''}"
+
+        await message.channel.send(f"🌞 Welcome back, {message.author.display_name}! You slept for {time_str.strip()}.")
+
     await bot.process_commands(message)
 
 # === On ready event to sync commands ===
