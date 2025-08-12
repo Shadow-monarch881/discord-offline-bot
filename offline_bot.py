@@ -9,7 +9,7 @@ import webserver  # your webserver import
 # === CONFIG ===
 OWNER_ID = 620819429139415040  # Your Discord user ID
 TOKEN = os.getenv("Secret_Key") or "YOUR_DISCORD_BOT_TOKEN_HERE"
-GUILD_ID = 1116737021470314597  # Your main server ID for guild commands sync
+GUILD_ID = 1116737021470314597  # Your server ID for guild command sync
 
 # Start Flask webserver in background thread
 webserver.start()
@@ -37,8 +37,8 @@ last_record = ""
 repeat_enabled = False
 repeat_channel_id = None
 
-allowed_channels = set()  # Channels allowed for sleep commands (set by /allowchannel)
-allowed_servers = {GUILD_ID}   # Servers allowed for cross-server access (set by /access)
+allowed_channels = set()  # Channels allowed for commands (set by /allowchannel)
+allowed_servers = set()   # Servers allowed for cross-server access (set by /access)
 
 sleep_start_times = {}  # user_id -> datetime when /sleep was used
 
@@ -61,6 +61,7 @@ def has_required_role(member: discord.Member, required_role: str):
     return member_index <= required_index
 
 def has_privileged_role(member: discord.Member):
+    # Used for commands allowed for mod and above (mod+)
     if member.id == OWNER_ID:
         return True
     member_roles = {r.name.lower() for r in member.roles}
@@ -68,28 +69,21 @@ def has_privileged_role(member: discord.Member):
     return any(role in member_roles for role in allowed)
 
 def has_admin_role(member: discord.Member):
+    # Admin and above
     if member.id == OWNER_ID:
         return True
     member_roles = {r.name.lower() for r in member.roles}
     allowed = {"admin", "head admin", "co-owner", "owner"}
     return any(role in member_roles for role in allowed)
 
-# === Command sync helper for allowed servers ===
-async def sync_all_allowed_servers():
-    for guild_id in allowed_servers:
-        try:
-            await bot.tree.sync(guild=discord.Object(id=guild_id))
-            print(f"✅ Synced commands for guild {guild_id}")
-        except Exception as e:
-            print(f"❌ Failed to sync commands for guild {guild_id}: {e}")
 
 # === Moderation Commands ===
 
-@bot.tree.command(name="kick", description="Kick a member from the server")
+@bot.tree.command(name="kick", description="Kick a member from the server", guild=discord.Object(id=GUILD_ID))
 @app_commands.describe(member="Member to kick", reason="Reason for kicking")
 async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     if not has_required_role(interaction.user, "mod"):
-        await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
+        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
         return
     try:
         await member.kick(reason=reason)
@@ -99,11 +93,11 @@ async def kick(interaction: discord.Interaction, member: discord.Member, reason:
     except Exception as e:
         await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
 
-@bot.tree.command(name="ban", description="Ban a member from the server")
+@bot.tree.command(name="ban", description="Ban a member from the server", guild=discord.Object(id=GUILD_ID))
 @app_commands.describe(member="Member to ban", reason="Reason for banning")
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     if not has_required_role(interaction.user, "admin"):
-        await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
+        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
         return
     try:
         await member.ban(reason=reason)
@@ -113,11 +107,11 @@ async def ban(interaction: discord.Interaction, member: discord.Member, reason: 
     except Exception as e:
         await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
 
-@bot.tree.command(name="unban", description="Unban a user")
+@bot.tree.command(name="unban", description="Unban a user", guild=discord.Object(id=GUILD_ID))
 @app_commands.describe(user="User to unban")
 async def unban(interaction: discord.Interaction, user: discord.User):
     if not has_required_role(interaction.user, "admin"):
-        await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
+        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
         return
     try:
         await interaction.guild.unban(user)
@@ -127,11 +121,11 @@ async def unban(interaction: discord.Interaction, user: discord.User):
     except Exception as e:
         await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
 
-@bot.tree.command(name="mute", description="Timeout a member")
+@bot.tree.command(name="mute", description="Timeout a member", guild=discord.Object(id=GUILD_ID))
 @app_commands.describe(member="Member to mute", duration="Duration in minutes", reason="Reason for muting")
 async def mute(interaction: discord.Interaction, member: discord.Member, duration: int, reason: str = "No reason provided"):
     if not has_required_role(interaction.user, "mod"):
-        await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
+        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
         return
     until = discord.utils.utcnow() + timedelta(minutes=duration)
     try:
@@ -142,11 +136,11 @@ async def mute(interaction: discord.Interaction, member: discord.Member, duratio
     except Exception as e:
         await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
 
-@bot.tree.command(name="unmute", description="Remove timeout from a member")
+@bot.tree.command(name="unmute", description="Remove timeout from a member", guild=discord.Object(id=GUILD_ID))
 @app_commands.describe(member="Member to unmute")
 async def unmute(interaction: discord.Interaction, member: discord.Member):
     if not has_required_role(interaction.user, "mod"):
-        await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
+        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
         return
     try:
         await member.timeout(None)
@@ -156,7 +150,7 @@ async def unmute(interaction: discord.Interaction, member: discord.Member):
 
 # === Role Management Commands ===
 
-@bot.tree.command(name="promote", description="Promote a member to the next higher role")
+@bot.tree.command(name="promote", description="Promote a member to the next higher role", guild=discord.Object(id=GUILD_ID))
 @app_commands.describe(member="Member to promote")
 async def promote(interaction: discord.Interaction, member: discord.Member):
     if not has_required_role(interaction.user, "admin"):
@@ -175,7 +169,7 @@ async def promote(interaction: discord.Interaction, member: discord.Member):
                 return
     await interaction.response.send_message("⚠️ This member cannot be promoted further.", ephemeral=True)
 
-@bot.tree.command(name="demote", description="Demote a member to the next lower role")
+@bot.tree.command(name="demote", description="Demote a member to the next lower role", guild=discord.Object(id=GUILD_ID))
 @app_commands.describe(member="Member to demote")
 async def demote(interaction: discord.Interaction, member: discord.Member):
     if not has_required_role(interaction.user, "admin"):
@@ -196,7 +190,7 @@ async def demote(interaction: discord.Interaction, member: discord.Member):
 
 # === Offline Utility Commands ===
 
-@bot.tree.command(name="record", description="Save a record (Mods & above)")
+@bot.tree.command(name="record", description="Save a record (Mods & above)", guild=discord.Object(id=GUILD_ID))
 @app_commands.describe(text="Text to save as record")
 async def record_cmd(interaction: discord.Interaction, text: str):
     global last_record
@@ -206,14 +200,14 @@ async def record_cmd(interaction: discord.Interaction, text: str):
     last_record = text
     await interaction.response.send_message(f"✅ Record saved: {text}")
 
-@bot.tree.command(name="print", description="Print the last record (Mods & above)")
+@bot.tree.command(name="print", description="Print the last record (Mods & above)", guild=discord.Object(id=GUILD_ID))
 async def print_cmd(interaction: discord.Interaction):
     if not has_required_role(interaction.user, "mod"):
         await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
         return
     await interaction.response.send_message(f"📝 Last record: {last_record or 'No record saved.'}")
 
-@bot.tree.command(name="repeat", description="Toggle repeating the last record in this channel (Mods & above)")
+@bot.tree.command(name="repeat", description="Toggle repeating the last record in this channel (Mods & above)", guild=discord.Object(id=GUILD_ID))
 async def repeat_cmd(interaction: discord.Interaction):
     global repeat_enabled, repeat_channel_id
     if not has_required_role(interaction.user, "mod"):
@@ -223,7 +217,7 @@ async def repeat_cmd(interaction: discord.Interaction):
     repeat_channel_id = interaction.channel_id if repeat_enabled else None
     await interaction.response.send_message(f"🔁 Repeat mode {'enabled' if repeat_enabled else 'disabled'} in this channel.")
 
-@bot.tree.command(name="stop", description="Stop repeat mode manually (Mods & above)")
+@bot.tree.command(name="stop", description="Stop repeat mode manually (Mods & above)", guild=discord.Object(id=GUILD_ID))
 async def stop_cmd(interaction: discord.Interaction):
     global repeat_enabled, repeat_channel_id
     if not has_required_role(interaction.user, "mod"):
@@ -233,7 +227,7 @@ async def stop_cmd(interaction: discord.Interaction):
     repeat_channel_id = None
     await interaction.response.send_message("🛑 Repeat mode manually stopped.")
 
-@bot.tree.command(name="refresh", description="Erase the saved record and stop repeat (Mods & above)")
+@bot.tree.command(name="refresh", description="Erase the saved record and stop repeat (Mods & above)", guild=discord.Object(id=GUILD_ID))
 async def refresh_cmd(interaction: discord.Interaction):
     global last_record, repeat_enabled, repeat_channel_id
     if not has_required_role(interaction.user, "mod"):
@@ -246,14 +240,16 @@ async def refresh_cmd(interaction: discord.Interaction):
 
 # === Sleep / AllowChannel / Access Commands ===
 
+# Owner-only: Allow current channel for sleep commands for members below mod+
 @bot.tree.command(name="allowchannel", description="Owner only: Allow current channel for members to use sleep")
 async def allowchannel_cmd(interaction: discord.Interaction):
     if interaction.user.id != OWNER_ID:
         await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
         return
     allowed_channels.add(interaction.channel_id)
-    await interaction.response.send_message(f"✅ Channel <#{interaction.channel_id}> allowed for sleep commands.")
+    await interaction.response.send_message(f"✅ Channel <#{interaction.channel_id}> allowed for members to use sleep commands.")
 
+# Owner-only: Allow server id for cross-server commands (you can expand usage)
 @bot.tree.command(name="access", description="Owner only: Allow a server ID for cross-server access")
 @app_commands.describe(server_id="Server ID to allow access")
 async def access_cmd(interaction: discord.Interaction, server_id: str):
@@ -261,32 +257,26 @@ async def access_cmd(interaction: discord.Interaction, server_id: str):
         await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
         return
     try:
-        guild_id = int(server_id)
-        if guild_id not in allowed_servers:
-            allowed_servers.add(guild_id)
-            await sync_all_allowed_servers()
-            await interaction.response.send_message(f"✅ Access granted for server ID {server_id} and commands synced.")
-        else:
-            await interaction.response.send_message(f"⚠️ Server ID {server_id} already has access.", ephemeral=True)
+        allowed_servers.add(int(server_id))
+        await interaction.response.send_message(f"✅ Access granted for server ID {server_id}.")
     except ValueError:
         await interaction.response.send_message("❌ Invalid server ID.", ephemeral=True)
 
+# Sleep command: mods+ anywhere OR members in allowed channels only
 @bot.tree.command(name="sleep", description="Start your sleep timer")
 async def sleep_cmd(interaction: discord.Interaction):
     user = interaction.user
-    if interaction.guild_id not in allowed_servers:
-        await interaction.response.send_message("❌ This server does not have sleep commands enabled.", ephemeral=True)
-        return
     if not has_privileged_role(user) and interaction.channel_id not in allowed_channels:
         await interaction.response.send_message("❌ You can only use this command in allowed channels.", ephemeral=True)
         return
     sleep_start_times[user.id] = datetime.utcnow()
     await interaction.response.send_message(f"😴 {user.mention}, you are now marked as sleeping. Sweet dreams!")
 
-@bot.tree.command(name="sleeping", description="Show list of sleeping users (Admins+ only)")
+# Sleeping list command (admins+)
+@bot.tree.command(name="sleeping", description="Show list of sleeping users (Admins+ only)", guild=discord.Object(id=GUILD_ID))
 async def sleeping_cmd(interaction: discord.Interaction):
     if not has_admin_role(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
+        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
         return
     if not sleep_start_times:
         await interaction.response.send_message("Nobody is currently sleeping.")
@@ -299,7 +289,7 @@ async def sleeping_cmd(interaction: discord.Interaction):
 
 # === Info Commands ===
 
-@bot.tree.command(name="server_rules", description="Show Akane's usage rules for the server")
+@bot.tree.command(name="server_rules", description="Show Akane's usage rules for the server", guild=discord.Object(id=GUILD_ID))
 async def server_rules_cmd(interaction: discord.Interaction):
     if not has_required_role(interaction.user, "mod"):
         await interaction.response.send_message("❌ You don't have permission to use this.", ephemeral=True)
@@ -368,7 +358,7 @@ async def server_rules_cmd(interaction: discord.Interaction):
     embed.add_field(
         name="⚙️ Owner-only Commands",
         value=(
-            "/allowchannel — Allow current channel for sleep commands\n"
+            "/allowchannel — Allow current channel for commands\n"
             "/access server_id:<id> — Allow server ID for cross-server access"
         ),
         inline=False
@@ -409,6 +399,14 @@ async def about_cmd(interaction: discord.Interaction):
 
 # === Events ===
 
+@bot.event
+async def on_ready():
+    print(f"✅ Logged in as {bot.user}")
+    # Sync guild commands for faster updates in guild
+    await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+    # Sync global commands like /about
+    await bot.tree.sync()
+    print("🔄 Commands synced.")
 
 @bot.event
 async def on_message(message: discord.Message):
