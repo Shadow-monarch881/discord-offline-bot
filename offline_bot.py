@@ -237,9 +237,9 @@ async def refresh_cmd(interaction: discord.Interaction):
     repeat_channel_id = None
     await interaction.response.send_message("♻️ Record cleared and repeat mode disabled.")
 
-# === Sleep / AllowChannel / Access Commands ===
+# === Sleep / AllowChannel / Access Commands 
 
-@bot.tree.command(name="allowchannel", description="Owner only: Allow current channel for commands")
+@bot.tree.command(name="allowchannel", description="Owner only: Allow current channel for commands", guild=discord.Object(id=GUILD_ID))
 async def allowchannel_cmd(interaction: discord.Interaction):
     if interaction.user.id != OWNER_ID:
         await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
@@ -247,7 +247,7 @@ async def allowchannel_cmd(interaction: discord.Interaction):
     allowed_channels.add(interaction.channel_id)
     await interaction.response.send_message(f"✅ Channel <#{interaction.channel_id}> allowed for commands.")
 
-@bot.tree.command(name="access", description="Owner only: Allow a server ID for cross-server commands")
+@bot.tree.command(name="access", description="Owner only: Allow a server ID for cross-server commands", guild=discord.Object(id=GUILD_ID))
 @app_commands.describe(server_id="Server ID to allow access")
 async def access_cmd(interaction: discord.Interaction, server_id: str):
     if interaction.user.id != OWNER_ID:
@@ -259,18 +259,18 @@ async def access_cmd(interaction: discord.Interaction, server_id: str):
     except ValueError:
         await interaction.response.send_message("❌ Invalid server ID.", ephemeral=True)
 
-@bot.tree.command(name="sleep", description="Start your sleep timer and say good night (Admins+ only)")
+@bot.tree.command(name="sleep", description="Start your sleep timer and say good night (Admins+ only)", guild=discord.Object(id=GUILD_ID))
 async def sleep_cmd(interaction: discord.Interaction):
     if not has_admin_role(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
         return
-    sleep_start_times[interaction.user.id] = datetime.utcnow()
+    sleep_start_times[interaction.user.id] = discord.utils.utcnow()
     await interaction.response.send_message(f"😴 Good night, {interaction.user.display_name}! Sleep well tonight.")
 
-@bot.tree.command(name="sleeping", description="List users currently sleeping (Admins+ only)")
+@bot.tree.command(name="sleeping", description="List users currently sleeping (Admins+ only)", guild=discord.Object(id=GUILD_ID))
 async def sleeping_cmd(interaction: discord.Interaction):
     if not has_admin_role(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
         return
     if not sleep_start_times:
         await interaction.response.send_message("Nobody is currently sleeping.")
@@ -280,6 +280,12 @@ async def sleeping_cmd(interaction: discord.Interaction):
         user = bot.get_user(user_id)
         users.append(user.display_name if user else f"User ID {user_id}")
     await interaction.response.send_message("💤 Currently sleeping users:\n" + "\n".join(users))
+
+# === On ready event ===
+@bot.event
+async def on_ready():
+    print(f"✅ Bot logged in as {bot.user}")
+    await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
 
 # === Info Commands ===
 
@@ -458,3 +464,4 @@ if __name__ == "__main__":
         loop = asyncio.get_event_loop()
         loop.create_task(main())
         loop.run_forever()
+
