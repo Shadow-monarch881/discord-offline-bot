@@ -1,1 +1,1 @@
-web: python offline_bot.py
+worker: python offline_bot.py
