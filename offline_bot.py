@@ -32,6 +32,7 @@ ROLES_HIERARCHY = [
     "moderator"
 ]
 
+
 # === Globals for offline utility & sleep feature ===
 last_record = ""
 repeat_enabled = False
@@ -238,16 +239,18 @@ async def refresh_cmd(interaction: discord.Interaction):
     await interaction.response.send_message("♻️ Record cleared and repeat mode disabled.")
 
 # === Sleep / AllowChannel / Access Commands 
-
-@bot.tree.command(name="allowchannel", description="Owner only: Allow current channel for commands", guild=discord.Object(id=GUILD_ID))
+# Owner-only: Allow current channel for sleep commands for members below mod+
+@bot.tree.command(name="allowchannel", description="Owner only: Allow current channel for members to use sleep")
 async def allowchannel_cmd(interaction: discord.Interaction):
     if interaction.user.id != OWNER_ID:
         await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
         return
     allowed_channels.add(interaction.channel_id)
-    await interaction.response.send_message(f"✅ Channel <#{interaction.channel_id}> allowed for commands.")
+    await interaction.response.send_message(f"✅ Channel <#{interaction.channel_id}> allowed for members to use sleep commands.")
 
-@bot.tree.command(name="access", description="Owner only: Allow a server ID for cross-server commands", guild=discord.Object(id=GUILD_ID))
+
+# Owner-only: Allow server id for cross-server commands (you can extend its usage later)
+@bot.tree.command(name="access", description="Owner only: Allow a server ID for cross-server access")
 @app_commands.describe(server_id="Server ID to allow access")
 async def access_cmd(interaction: discord.Interaction, server_id: str):
     if interaction.user.id != OWNER_ID:
@@ -258,17 +261,6 @@ async def access_cmd(interaction: discord.Interaction, server_id: str):
         await interaction.response.send_message(f"✅ Access granted for server ID {server_id}.")
     except ValueError:
         await interaction.response.send_message("❌ Invalid server ID.", ephemeral=True)
-
-sleep_start_times = {}
-
-# Permission helper for Admin+ (example)
-def has_admin_role(member: discord.Member) -> bool:
-    if member.id == OWNER_ID:
-        return True
-    admin_roles = {"admin", "head admin", "co-owner", "owner"}
-    member_roles = {r.name.lower() for r in member.roles}
-    return bool(admin_roles & member_roles)
-
 # --- Sleep command ---
 @bot.tree.command(name="sleep", description="Start your sleep timer (Admins+ only)", guild=discord.Object(id=GUILD_ID))
 async def sleep_cmd(interaction: discord.Interaction):
@@ -277,6 +269,7 @@ async def sleep_cmd(interaction: discord.Interaction):
         return
     sleep_start_times[interaction.user.id] = datetime.utcnow()
     await interaction.response.send_message(f"😴 {interaction.user.mention}, you are now marked as sleeping. Sweet dreams!")
+
 
 # --- Sleeping list command ---
 @bot.tree.command(name="sleeping", description="Show list of sleeping users (Admins+ only)", guild=discord.Object(id=GUILD_ID))
@@ -352,11 +345,7 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-# === On ready event ===
-@bot.event
-async def on_ready():
-    print(f"✅ Bot logged in as {bot.user}")
-    await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+
 
 # === Info Commands ===
 
@@ -458,8 +447,14 @@ async def server_rules_cmd(interaction: discord.Interaction):
 
     embed.set_footer(text="Stay respectful and enjoy chatting with Akane 💜")
     await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="about", description="Learn about Akane", guild=discord.Object(id=GUILD_ID))
+# === On ready event ===
+@bot.event
+async def on_ready():
+    print(f"✅ Bot logged in as {bot.user}")
+    await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+    
+# About command (GLOBAL, no guild specified)
+@bot.tree.command(name="about", description="Learn about Akane (global)")
 async def about_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
         title="✨ About Akane",
@@ -483,6 +478,8 @@ async def about_cmd(interaction: discord.Interaction):
     )
     embed.set_footer(text="😊 Have a nice day! 🌸")
     await interaction.response.send_message(embed=embed)
+
+
 
 # === Repeat Listener & Sleep Wakeup ===
 
@@ -535,5 +532,6 @@ if __name__ == "__main__":
         loop = asyncio.get_event_loop()
         loop.create_task(main())
         loop.run_forever()
+
 
 
