@@ -409,10 +409,25 @@ async def about_cmd(interaction: discord.Interaction):
 
 # === Events ===
 
+
 @bot.event
-async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
-    # Sync global commands like /about
-    await bot.tree.sync()
-    # Sync guild commands for allowed servers
-    await sync_all
+async def on_message(message: discord.Message):
+    global last_record, repeat_enabled, repeat_channel_id
+    if message.author == bot.user:
+        return
+
+    # Wake up user on any message if sleeping
+    if message.author.id in sleep_start_times:
+        del sleep_start_times[message.author.id]
+        await message.channel.send(f"🌞 Welcome back, {message.author.mention}!")
+
+    # If repeat is enabled and in the repeat channel
+    if repeat_enabled and repeat_channel_id == message.channel.id:
+        if last_record:
+            await message.channel.send(last_record)
+
+    await bot.process_commands(message)
+
+# === Run the bot ===
+bot.run(TOKEN)
+
