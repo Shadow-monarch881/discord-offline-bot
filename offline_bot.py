@@ -9,7 +9,7 @@ import webserver  # your webserver import
 # === CONFIG ===
 OWNER_ID = 620819429139415040  # Your Discord user ID
 TOKEN = os.getenv("Secret_Key") or "YOUR_DISCORD_BOT_TOKEN_HERE"
-GUILD_ID = 1116737021470314597  # Your server ID for guild command sync
+GUILD_ID = 1100920681551642704  # Your server ID for guild command sync
 
 # Start Flask webserver in background thread
 webserver.start()
@@ -428,4 +428,5 @@ async def on_message(message: discord.Message):
 
 # === Run the bot ===
 bot.run(TOKEN)
+
 
